@@ -1,64 +1,41 @@
 import java.util.ArrayList;
 
-// Abstract class: anything that holds cards (player or dealer)
+// Abstract class: anything that plays with cards (player or dealer)
 public abstract class Participant {
 
     private String name;
-    private ArrayList<Card> hand; // cards in the hand
+    private ArrayList<Hand> hands; // a player can have two hands after a split
 
     public Participant(String name) {
         this.name = name;
-        this.hand = new ArrayList<>();
+        this.hands = new ArrayList<>();
     }
 
     public String getName() {
         return name;
     }
 
-    public void addCard(Card card) {
-        hand.add(card);
+    public ArrayList<Hand> getHands() {
+        return hands;
     }
 
-    public Card getCard(int index) {
-        return hand.get(index);
+    public Hand getFirstHand() {
+        return hands.get(0);
     }
 
-    public void clearHand() {
-        hand.clear();
+    public void addHand(Hand hand) {
+        hands.add(hand);
     }
 
-    // Total points: an ace counts 11, but becomes 1 if the total goes over 21
-    public int getTotal() {
-        int total = 0;
-        int aces = 0;
-
-        for (Card card : hand) {
-            total += card.getValue();
-            if (card.isAce()) {
-                aces++;
-            }
-        }
-
-        while (total > 21 && aces > 0) {
-            total -= 10; // ace changes from 11 to 1
-            aces--;
-        }
-        return total;
+    // Adds a hand in a given position of the list (used by the split)
+    public void addHand(int position, Hand hand) {
+        hands.add(position, hand);
     }
 
-    public boolean isBust() {
-        return getTotal() > 21;
+    public void clearHands() {
+        hands.clear();
     }
 
-    // Blackjack = 21 with only two cards
-    public boolean hasBlackjack() {
-        return hand.size() == 2 && getTotal() == 21;
-    }
-
-    public String showHand() {
-        return name + ": " + hand + " (total: " + getTotal() + ")";
-    }
-
-    // Each type of participant decides in its own way
-    public abstract boolean wantsToHit();
+    // Each type of participant plays its turn in its own way
+    public abstract void playTurn(Deck deck);
 }

@@ -11,12 +11,25 @@ public class Card {
         this.value = value;
     }
 
+    public String getRank() {
+        return rank;
+    }
+
+    public String getSuit() {
+        return suit;
+    }
+
     public int getValue() {
         return value;
     }
 
     public boolean isAce() {
         return rank.equals("A");
+    }
+
+    // Hearts and Diamonds are red, Clubs and Spades are black
+    public boolean isRed() {
+        return suit.equals("Hearts") || suit.equals("Diamonds");
     }
 
     // How the card is printed, like "K of Hearts"

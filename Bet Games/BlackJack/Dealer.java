@@ -5,13 +5,33 @@ public class Dealer extends Participant {
         super("Dealer");
     }
 
-    @Override
-    public boolean wantsToHit() {
-        return getTotal() < 17;
+    // The dealer's first card is the one everybody can see
+    public Card getUpCard() {
+        return getFirstHand().getCard(0);
     }
 
     // At the start, the player only sees the first card
     public String showHidden() {
-        return getName() + ": [" + getCard(0) + ", hidden card]";
+        return getName() + ": [" + getUpCard() + ", hidden card]";
+    }
+
+    public String showHand() {
+        return getName() + ": " + getFirstHand();
+    }
+
+    @Override
+    public void playTurn(Deck deck) {
+        Hand hand = getFirstHand();
+
+        while (hand.getTotal() < 17) {
+            hand.addCard(deck.draw());
+            System.out.println("Dealer hits: " + showHand());
+        }
+
+        if (hand.isBust()) {
+            System.out.println("Dealer busts!");
+        } else {
+            System.out.println("Dealer stands with " + hand.getTotal() + ".");
+        }
     }
 }
