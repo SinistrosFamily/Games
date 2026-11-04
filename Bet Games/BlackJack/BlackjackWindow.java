@@ -6,12 +6,15 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.Timer;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.KeyboardFocusManager;
+import java.awt.event.KeyEvent;
 
 // The window: shows the table, the log and the buttons.
 // All the rules are in GameTable. Here we only call it and show the result.
@@ -19,8 +22,11 @@ public class BlackjackWindow extends JFrame {
 
     private static final long serialVersionUID = 1L; // only to avoid a warning in VS Code
 
+    private static final int DEALER_DELAY = 800; // milliseconds between the dealer's cards
+
     private GameTable table;
     private CardPanel cardPanel;
+    private Timer dealerTimer;  // repeats the dealer's steps
 
     private JLabel balanceLabel;
     private JLabel statsLabel;
@@ -56,6 +62,10 @@ public class BlackjackWindow extends JFrame {
         pack();                                  // the window gets the size it needs
         setLocationRelativeTo(null);             // center on the screen
         getRootPane().setDefaultButton(dealButton); // the Enter key presses Deal
+
+        // every DEALER_DELAY milliseconds the timer calls onDealerTick()
+        dealerTimer = new Timer(DEALER_DELAY, event -> onDealerTick());
+        addKeyboardShortcuts();
 
         refresh();
     }
@@ -109,15 +119,15 @@ public class BlackjackWindow extends JFrame {
         betRow.add(dealButton);
 
         // row 2: the moves of the player
-        hitButton = new JButton("Hit");
+        hitButton = new JButton("Hit (H)");
         hitButton.addActionListener(event -> onHit());
-        standButton = new JButton("Stand");
+        standButton = new JButton("Stand (S)");
         standButton.addActionListener(event -> onStand());
-        doubleButton = new JButton("Double");
+        doubleButton = new JButton("Double (D)");
         doubleButton.addActionListener(event -> onDouble());
-        splitButton = new JButton("Split");
+        splitButton = new JButton("Split (P)");
         splitButton.addActionListener(event -> onSplit());
-        surrenderButton = new JButton("Surrender");
+        surrenderButton = new JButton("Surrender (R)");
         surrenderButton.addActionListener(event -> onSurrender());
 
         JPanel moveRow = new JPanel(new FlowLayout());
@@ -128,11 +138,11 @@ public class BlackjackWindow extends JFrame {
         moveRow.add(surrenderButton);
 
         // row 3: insurance and next round
-        insuranceButton = new JButton("Insurance");
+        insuranceButton = new JButton("Insurance (I)");
         insuranceButton.addActionListener(event -> onInsurance());
-        noInsuranceButton = new JButton("No insurance");
+        noInsuranceButton = new JButton("No insurance (N)");
         noInsuranceButton.addActionListener(event -> onNoInsurance());
-        nextButton = new JButton("Next round");
+        nextButton = new JButton("Next round (Enter)");
         nextButton.addActionListener(event -> onNext());
 
         JPanel extraRow = new JPanel(new FlowLayout());
@@ -241,6 +251,58 @@ public class BlackjackWindow extends JFrame {
         betField.selectAll();
     }
 
+    // Called by the timer: the dealer does one step (reveal, hit or finish)
+    private void onDealerTick() {
+        boolean moreSteps = table.dealerStep();
+        if (!moreSteps) {
+            dealerTimer.stop(); // the dealer is done
+        }
+        refresh();
+    }
+
+    // ---------- keyboard shortcuts ----------
+
+    // Listens to the keys of the whole window
+    private void addKeyboardShortcuts() {
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(event -> {
+            if (event.getID() == KeyEvent.KEY_PRESSED) {
+                return handleKey(event.getKeyCode()); // true = the key was used, nobody else gets it
+            }
+            return false; // false = the key goes on as usual (typing in the text fields)
+        });
+    }
+
+    // Returns true if the key pressed a button
+    private boolean handleKey(int keyCode) {
+        if (keyCode == KeyEvent.VK_H) {
+            return press(hitButton);
+        } else if (keyCode == KeyEvent.VK_S) {
+            return press(standButton);
+        } else if (keyCode == KeyEvent.VK_D) {
+            return press(doubleButton);
+        } else if (keyCode == KeyEvent.VK_P) {
+            return press(splitButton);
+        } else if (keyCode == KeyEvent.VK_R) {
+            return press(surrenderButton);
+        } else if (keyCode == KeyEvent.VK_I) {
+            return press(insuranceButton);
+        } else if (keyCode == KeyEvent.VK_N) {
+            return press(noInsuranceButton);
+        } else if (keyCode == KeyEvent.VK_ENTER) {
+            return press(nextButton); // not used during the betting: the Deal button gets Enter
+        }
+        return false;
+    }
+
+    // Clicks the button, but only if it is enabled. Returns true if it clicked.
+    private boolean press(JButton button) {
+        if (button.isEnabled()) {
+            button.doClick();
+            return true;
+        }
+        return false;
+    }
+
     // ---------- updating the screen ----------
 
     private void showError(String message) {
@@ -267,6 +329,11 @@ public class BlackjackWindow extends JFrame {
 
         updateButtons();
         cardPanel.repaint(); // draws the table again
+
+        // the dealer's turn starts: the timer plays it step by step
+        if (table.getPhase() == Phase.DEALER_TURN && !dealerTimer.isRunning()) {
+            dealerTimer.start();
+        }
     }
 
     // Each button is enabled only when its move is allowed
@@ -289,16 +356,16 @@ public class BlackjackWindow extends JFrame {
         insuranceButton.setEnabled(insurance);
         noInsuranceButton.setEnabled(insurance);
         if (insurance) {
-            insuranceButton.setText("Insurance ($" + table.getInsuranceCost() + ")");
+            insuranceButton.setText("Insurance $" + table.getInsuranceCost() + " (I)");
         } else {
-            insuranceButton.setText("Insurance");
+            insuranceButton.setText("Insurance (I)");
         }
 
         nextButton.setEnabled(phase == Phase.ROUND_OVER);
         if (table.getBalance() <= 0) {
-            nextButton.setText("New game ($" + GameTable.STARTING_BALANCE + ")");
+            nextButton.setText("New game $" + GameTable.STARTING_BALANCE + " (Enter)");
         } else {
-            nextButton.setText("Next round");
+            nextButton.setText("Next round (Enter)");
         }
     }
 }

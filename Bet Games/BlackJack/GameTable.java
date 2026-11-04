@@ -353,9 +353,9 @@ public class GameTable {
     // ---------- the dealer and the results ----------
 
     // The dealer plays (if needed), then the bets are paid
+    // The player finished. If a hand is still alive, the dealer plays;
+    // the window calls dealerStep() again and again (with a Timer).
     private void finishRound() {
-        holeHidden = false;
-
         boolean someoneAlive = false;
         for (Hand hand : playerHands) {
             if (!hand.isBust() && !hand.isSurrendered()) {
@@ -364,23 +364,45 @@ public class GameTable {
         }
 
         if (someoneAlive) {
-            messages.add("Dealer's turn: " + dealerHand);
-            while (dealerHand.getTotal() < 17) {
-                dealerHand.addCard(deck.draw());
-                messages.add("Dealer hits: " + dealerHand);
-            }
-            if (dealerHand.isBust()) {
-                messages.add("Dealer busts!");
-            } else {
-                messages.add("Dealer stands with " + dealerHand.getTotal() + ".");
-            }
+            phase = Phase.DEALER_TURN;
+            messages.add("Dealer's turn...");
         } else {
+            holeHidden = false;
             messages.add("All your hands are out. The dealer does not play.");
+            settleHands();
+            endRound();
+        }
+    }
+    // One step of the dealer: reveal the hidden card, or draw one card, or finish.
+    // Returns true while there are more steps to do.
+    public boolean dealerStep() {
+        if (phase != Phase.DEALER_TURN) {
+            return false;
         }
 
+        if (holeHidden) {
+            holeHidden = false;
+            messages.add("Dealer reveals: " + dealerHand);
+            return true;
+        }
+
+        if (dealerHand.getTotal() < 17) {
+            dealerHand.addCard(deck.draw());
+            messages.add("Dealer hits: " + dealerHand);
+            return true;
+        }
+
+        // the dealer is done: the bets are paid
+        if (dealerHand.isBust()) {
+            messages.add("Dealer busts!");
+        } else {
+            messages.add("Dealer stands with " + dealerHand.getTotal() + ".");
+        }
         settleHands();
         endRound();
+        return false;
     }
+
 
     // Compares each hand of the player with the dealer and pays the bets
     private void settleHands() {
