@@ -3,7 +3,7 @@ import java.util.ArrayList;
 // Rules and state of the game. It has no windows: the window only asks it to do things.
 public class GameTable {
 
-    public static final int STARTING_BALANCE = 500;
+    public static final int DEFAULT_BALANCE = 500;
 
     private Deck deck;
     private Hand dealerHand;
@@ -11,6 +11,7 @@ public class GameTable {
     private ArrayList<String> handResults;  // text with the result of each hand
     private ArrayList<String> messages;     // news for the window to show
 
+    private int initialBalance = DEFAULT_BALANCE; // the balance of a new game (a setting)
     private int balance;
     private int pairBet;
     private int insuranceBet;
@@ -47,7 +48,7 @@ public class GameTable {
     }
 
     private void resetGame() {
-        balance = STARTING_BALANCE;
+        balance = initialBalance;
         handsWon = 0;
         handsLost = 0;
         handsTied = 0;
@@ -467,7 +468,23 @@ public class GameTable {
     public int getBalance() {
         return balance;
     }
+    
+    public int getInitialBalance() {
+        return initialBalance;
+    }
 
+    // Changes the balance of the next new game
+    public void setInitialBalance(int amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("The starting balance must be greater than zero.");
+        }
+        initialBalance = amount;
+    }
+
+    // How much money the player won (or lost, if negative) in this round
+    public int getRoundNet() {
+        return balance - startBalance;
+    }
     public int getPairBet() {
         return pairBet;
     }

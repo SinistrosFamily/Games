@@ -1,4 +1,5 @@
 import javax.swing.JPanel;
+import javax.swing.Timer;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -7,23 +8,44 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.HashMap;
 
-// The green table: draws the cards of the dealer and of the player
+// The green table: draws the deck and the cards of the dealer and of the player.
+// New cards slide in from the deck.
 public class CardPanel extends JPanel {
 
     private static final long serialVersionUID = 1L; // only to avoid a warning in VS Code
 
+    public static final int DEAL_STAGGER = 150;  // milliseconds between the cards of a deal
+
     private static final int CARD_WIDTH = 80;
     private static final int CARD_HEIGHT = 112;
-    private static final int CARD_GAP = 90;  // distance between the cards of a hand
+    private static final int CARD_GAP = 90;      // distance between the cards of a hand
+    private static final int SLIDE_TIME = 350;   // milliseconds a card takes to arrive
+    private static final int DECK_Y = 45;        // the deck is at the top right
 
     private GameTable table;
+    private CardImages cardImages;
+    private HashMap<Card, Long> startTimes; // the moment each card starts to slide
+    private boolean animating;              // true while a card is still moving
 
-    public CardPanel(GameTable table) {
+    public CardPanel(GameTable table, CardImages cardImages) {
         this.table = table;
+        this.cardImages = cardImages;
+        this.startTimes = new HashMap<>();
+
         setPreferredSize(new Dimension(640, 450));
         setBackground(new Color(0, 110, 50)); // green felt
+
+        // about 60 times per second: if a card is moving, draw the table again
+        Timer animationTimer = new Timer(16, event -> {
+            if (animating) {
+                repaint();
+            }
+        });
+        animationTimer.start();
     }
 
     // Swing calls this method every time the panel must be drawn
@@ -33,11 +55,86 @@ public class CardPanel extends JPanel {
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
 
+        animating = false;     // drawing the cards sets it to true again if one is still moving
+        registerNewCards();
+
+        drawDeck(g2);
         drawDealer(g2);
         drawPlayer(g2);
         drawSideBets(g2);
     }
+
+    // ---------- the animation ----------
+
+    // Gives a start time to each card that was not on the table before.
+    // Several new cards start one after the other (DEAL_STAGGER).
+    private void registerNewCards() {
+        if (table.getPlayerHands().isEmpty()) {
+            startTimes.clear(); // empty table: forget the old cards
+        }
+
+        int newCards = 0;
+        for (Hand hand : table.getPlayerHands()) {
+            for (int i = 0; i < hand.getSize(); i++) {
+                newCards = register(hand.getCard(i), newCards);
+            }
+        }
+        Hand dealerHand = table.getDealerHand();
+        for (int i = 0; i < dealerHand.getSize(); i++) {
+            newCards = register(dealerHand.getCard(i), newCards);
+        }
+    }
+
+    // Returns how many new cards we have found so far
+    private int register(Card card, int newCards) {
+        if (startTimes.containsKey(card)) {
+            return newCards;
+        }
+        startTimes.put(card, System.currentTimeMillis() + (long) newCards * DEAL_STAGGER);
+        return newCards + 1;
+    }
+
+    // Draws a card in its place, or on its way from the deck
+    private void drawCardAnimated(Graphics2D g2, Card card, int x, int y, boolean fullyVisible, boolean faceDown) {
+        long elapsed = System.currentTimeMillis() - startTimes.get(card);
+
+        if (elapsed < 0) { // not its turn yet: it is still in the deck
+            animating = true;
+            return;
+        }
+
+        int drawX = x;
+        int drawY = y;
+        if (elapsed < SLIDE_TIME) { // on its way
+            animating = true;
+            double progress = (double) elapsed / SLIDE_TIME;
+            double smooth = 1 - (1 - progress) * (1 - progress); // starts fast, arrives slowly
+            int deckX = getDeckX();
+            drawX = (int) (deckX + (x - deckX) * smooth);
+            drawY = (int) (DECK_Y + (y - DECK_Y) * smooth);
+        }
+
+        if (faceDown) {
+            drawCardBack(g2, drawX, drawY);
+        } else {
+            drawCard(g2, card, drawX, drawY, fullyVisible);
+        }
+    }
+
+    private int getDeckX() {
+        return getWidth() - CARD_WIDTH - 24;
+    }
+
+    // A small pile of cards at the top right
+    private void drawDeck(Graphics2D g2) {
+        for (int i = 2; i >= 0; i--) {
+            drawCardBack(g2, getDeckX() - i * 2, DECK_Y - i * 2);
+        }
+    }
+
+    // ---------- the cards of each one ----------
 
     private void drawDealer(Graphics2D g2) {
         Hand dealerHand = table.getDealerHand();
@@ -60,12 +157,9 @@ public class CardPanel extends JPanel {
         int startX = getStartX(dealerHand.getSize(), gap, 0, getWidth());
 
         for (int i = 0; i < dealerHand.getSize(); i++) {
-            int x = startX + i * gap;
-            if (i == 1 && table.isHoleHidden()) {
-                drawCardBack(g2, x, cardsY); // the hidden card
-            } else {
-                drawCard(g2, dealerHand.getCard(i), x, cardsY, isFullyVisible(i, dealerHand.getSize(), gap));
-            }
+            boolean faceDown = i == 1 && table.isHoleHidden(); // the hidden card
+            drawCardAnimated(g2, dealerHand.getCard(i), startX + i * gap, cardsY,
+                    isFullyVisible(i, dealerHand.getSize(), gap), faceDown);
         }
     }
 
@@ -104,7 +198,8 @@ public class CardPanel extends JPanel {
             }
 
             for (int c = 0; c < hand.getSize(); c++) {
-                drawCard(g2, hand.getCard(c), startX + c * gap, cardsY, isFullyVisible(c, hand.getSize(), gap));
+                drawCardAnimated(g2, hand.getCard(c), startX + c * gap, cardsY,
+                        isFullyVisible(c, hand.getSize(), gap), false);
             }
 
             // text under the cards
@@ -179,9 +274,16 @@ public class CardPanel extends JPanel {
         g2.drawString(text, x, y);
     }
 
-    // ---------- drawing a card ----------
+    // ---------- drawing a card (change this part to change how the cards look) ----------
 
     private void drawCard(Graphics2D g2, Card card, int x, int y, boolean fullyVisible) {
+        // if there is a picture file for this card, use it
+        BufferedImage picture = cardImages.get(card);
+        if (picture != null) {
+            g2.drawImage(picture, x, y, CARD_WIDTH, CARD_HEIGHT, null);
+            return;
+        }
+
         // white card with a gray border
         g2.setColor(Color.WHITE);
         g2.fillRoundRect(x, y, CARD_WIDTH, CARD_HEIGHT, 10, 10);
@@ -215,6 +317,13 @@ public class CardPanel extends JPanel {
 
     // The back of a card (face down)
     private void drawCardBack(Graphics2D g2, int x, int y) {
+        // if there is a picture file for the back, use it
+        BufferedImage picture = cardImages.getBack();
+        if (picture != null) {
+            g2.drawImage(picture, x, y, CARD_WIDTH, CARD_HEIGHT, null);
+            return;
+        }
+
         g2.setColor(new Color(30, 60, 160));
         g2.fillRoundRect(x, y, CARD_WIDTH, CARD_HEIGHT, 10, 10);
         g2.setColor(Color.WHITE);

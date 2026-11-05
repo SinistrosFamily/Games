@@ -1,7 +1,10 @@
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
@@ -22,11 +25,19 @@ public class BlackjackWindow extends JFrame {
 
     private static final long serialVersionUID = 1L; // only to avoid a warning in VS Code
 
-    private static final int DEALER_DELAY = 800; // milliseconds between the dealer's cards
+    // the dealer speed: milliseconds between the dealer's cards
+    private static final String[] SPEED_NAMES = {"Slow", "Normal", "Fast"};
+    private static final int[] SPEED_DELAYS = {1200, 800, 400};
+    private static final String[] BALANCE_OPTIONS = {"100", "250", "500", "1000", "5000", "10000"};
 
     private GameTable table;
     private CardPanel cardPanel;
-    private Timer dealerTimer;  // repeats the dealer's steps
+    private SoundPlayer sound;
+    private Timer dealerTimer;    // repeats the dealer's steps
+    private int speedIndex;       // 0 = Slow, 1 = Normal, 2 = Fast
+    private boolean dialogOpen;   // true while the settings window is open
+    private int lastCardCount;    // to know when new cards appear
+    private Phase lastPhase;      // to know when the round ends
 
     private JLabel balanceLabel;
     private JLabel statsLabel;
@@ -35,6 +46,7 @@ public class BlackjackWindow extends JFrame {
 
     private JTextField betField;
     private JTextField pairField;
+    private JButton settingsButton;
     private JButton dealButton;
     private JButton hitButton;
     private JButton standButton;
@@ -49,7 +61,12 @@ public class BlackjackWindow extends JFrame {
         super("Blackjack"); // the title of the window
 
         table = new GameTable();
-        cardPanel = new CardPanel(table);
+        sound = new SoundPlayer();
+        CardImages cardImages = new CardImages("cards"); // your own pictures, if the folder exists
+        cardPanel = new CardPanel(table, cardImages);
+        speedIndex = 1;
+        lastCardCount = 0;
+        lastPhase = Phase.BETTING;
 
         // BorderLayout: top, center, right and bottom
         add(createTopBar(), BorderLayout.NORTH);
@@ -63,10 +80,13 @@ public class BlackjackWindow extends JFrame {
         setLocationRelativeTo(null);             // center on the screen
         getRootPane().setDefaultButton(dealButton); // the Enter key presses Deal
 
-        // every DEALER_DELAY milliseconds the timer calls onDealerTick()
-        dealerTimer = new Timer(DEALER_DELAY, event -> onDealerTick());
+        // the timer calls onDealerTick() again and again, with the speed of the settings
+        dealerTimer = new Timer(SPEED_DELAYS[speedIndex], event -> onDealerTick());
         addKeyboardShortcuts();
 
+        if (cardImages.getCount() > 0) {
+            logArea.append("Card pictures loaded: " + cardImages.getCount() + " files from the folder \"cards\".\n");
+        }
         refresh();
     }
 
@@ -78,10 +98,14 @@ public class BlackjackWindow extends JFrame {
 
         balanceLabel = new JLabel();
         balanceLabel.setFont(new Font("SansSerif", Font.BOLD, 20));
-        statsLabel = new JLabel();
+        statsLabel = new JLabel("", JLabel.CENTER);
+
+        settingsButton = new JButton("Settings");
+        settingsButton.addActionListener(event -> onSettings());
 
         bar.add(balanceLabel, BorderLayout.WEST);
-        bar.add(statsLabel, BorderLayout.EAST);
+        bar.add(statsLabel, BorderLayout.CENTER);
+        bar.add(settingsButton, BorderLayout.EAST);
         return bar;
     }
 
@@ -251,6 +275,50 @@ public class BlackjackWindow extends JFrame {
         betField.selectAll();
     }
 
+    // Opens the settings window
+    private void onSettings() {
+        JComboBox<String> balanceBox = new JComboBox<>(BALANCE_OPTIONS);
+        balanceBox.setSelectedItem(String.valueOf(table.getInitialBalance()));
+        JComboBox<String> speedBox = new JComboBox<>(SPEED_NAMES);
+        speedBox.setSelectedIndex(speedIndex);
+        JCheckBox soundBox = new JCheckBox("On", sound.isEnabled());
+
+        JPanel panel = new JPanel(new GridLayout(0, 2, 10, 10));
+        panel.add(new JLabel("Starting balance ($):"));
+        panel.add(balanceBox);
+        panel.add(new JLabel("Dealer speed:"));
+        panel.add(speedBox);
+        panel.add(new JLabel("Sound effects:"));
+        panel.add(soundBox);
+        panel.add(new JLabel("A new balance starts a new game."));
+
+        dialogOpen = true; // the keyboard shortcuts sleep while the window is open
+        int answer = JOptionPane.showConfirmDialog(this, panel, "Settings",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        dialogOpen = false;
+
+        if (answer == JOptionPane.OK_OPTION) {
+            int balance = Integer.parseInt((String) balanceBox.getSelectedItem());
+            applySettings(balance, speedBox.getSelectedIndex(), soundBox.isSelected());
+        }
+    }
+
+    // Uses the chosen settings
+    private void applySettings(int initialBalance, int newSpeedIndex, boolean soundOn) {
+        sound.setEnabled(soundOn);
+
+        speedIndex = newSpeedIndex;
+        dealerTimer.setDelay(SPEED_DELAYS[speedIndex]);
+        dealerTimer.setInitialDelay(SPEED_DELAYS[speedIndex]);
+
+        // a different starting balance starts a new game
+        if (initialBalance != table.getInitialBalance()) {
+            table.setInitialBalance(initialBalance);
+            table.newGame();
+        }
+        refresh();
+    }
+
     // Called by the timer: the dealer does one step (reveal, hit or finish)
     private void onDealerTick() {
         boolean moreSteps = table.dealerStep();
@@ -265,7 +333,7 @@ public class BlackjackWindow extends JFrame {
     // Listens to the keys of the whole window
     private void addKeyboardShortcuts() {
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(event -> {
-            if (event.getID() == KeyEvent.KEY_PRESSED) {
+            if (event.getID() == KeyEvent.KEY_PRESSED && !dialogOpen) {
                 return handleKey(event.getKeyCode()); // true = the key was used, nobody else gets it
             }
             return false; // false = the key goes on as usual (typing in the text fields)
@@ -329,11 +397,46 @@ public class BlackjackWindow extends JFrame {
 
         updateButtons();
         cardPanel.repaint(); // draws the table again
+        playSounds();
 
         // the dealer's turn starts: the timer plays it step by step
         if (table.getPhase() == Phase.DEALER_TURN && !dealerTimer.isRunning()) {
             dealerTimer.start();
         }
+    }
+
+    // Plays the sounds for what just happened on the table
+    private void playSounds() {
+        // new cards on the table: one card sound for each (the same rhythm as the animation)
+        int cards = countCards();
+        if (cards > lastCardCount) {
+            sound.playCards(cards - lastCardCount, CardPanel.DEAL_STAGGER);
+        }
+        lastCardCount = cards;
+
+        // the round just ended: a sound for the result
+        Phase phase = table.getPhase();
+        if (phase == Phase.ROUND_OVER && lastPhase != Phase.ROUND_OVER) {
+            if (table.getHandResult(0).startsWith("BLACKJACK")) {
+                sound.playBlackjack();
+            } else if (table.getRoundNet() > 0) {
+                sound.playWin();
+            } else if (table.getRoundNet() < 0) {
+                sound.playLose();
+            } else {
+                sound.playPush();
+            }
+        }
+        lastPhase = phase;
+    }
+
+    // All the cards that are on the table now
+    private int countCards() {
+        int cards = table.getDealerHand().getSize();
+        for (Hand hand : table.getPlayerHands()) {
+            cards += hand.getSize();
+        }
+        return cards;
     }
 
     // Each button is enabled only when its move is allowed
@@ -345,6 +448,7 @@ public class BlackjackWindow extends JFrame {
         betField.setEnabled(betting);
         pairField.setEnabled(betting);
         dealButton.setEnabled(betting);
+        settingsButton.setEnabled(betting || phase == Phase.ROUND_OVER);
 
         hitButton.setEnabled(playing);
         standButton.setEnabled(playing);
@@ -363,7 +467,7 @@ public class BlackjackWindow extends JFrame {
 
         nextButton.setEnabled(phase == Phase.ROUND_OVER);
         if (table.getBalance() <= 0) {
-            nextButton.setText("New game $" + GameTable.STARTING_BALANCE + " (Enter)");
+            nextButton.setText("New game $" + table.getInitialBalance() + " (Enter)");
         } else {
             nextButton.setText("Next round (Enter)");
         }
