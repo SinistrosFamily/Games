@@ -84,9 +84,8 @@ public class BlackjackWindow extends JFrame {
         dealerTimer = new Timer(SPEED_DELAYS[speedIndex], event -> onDealerTick());
         addKeyboardShortcuts();
 
-        if (cardImages.getCount() > 0) {
-            logArea.append("Card pictures loaded: " + cardImages.getCount() + " files from the folder \"cards\".\n");
-        }
+        logArea.append(cardImages.getReport() + "\n"); // tells if the card pictures were found
+        
         refresh();
     }
 
